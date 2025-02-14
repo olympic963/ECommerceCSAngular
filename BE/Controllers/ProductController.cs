@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using BE.Models;
+using BE.Repositories;
 
 namespace BE.Controllers
 {
@@ -7,85 +8,86 @@ namespace BE.Controllers
     [Route("api/[controller]")]
     public class ProductController : ControllerBase
     {
-        private static List<Product> products = new List<Product> { };
+        private readonly IProductRepository _ProductRepo;
+
+        public ProductController(IProductRepository repo)
+        {
+            _ProductRepo = repo;
+        }
 
         [HttpGet("{id}")]
-        public ActionResult<Product> GetProductById(int id)
+        public async Task<IActionResult> GetProductById(int id)
         {
-            var product = products.FirstOrDefault(e => e.Id == id);
-            if (product == null)
-            {
-                return NotFound(new { message = $"Không tìm thấy sản phẩm với ID: {id}" });
-            }
-            return Ok(product);
+            var Product = await _ProductRepo.GetProductAsync(id);
+            return Product == null ? NotFound(new { message = $"Không tìm thấy sản phẩm với ID: {id}" }) : Ok(Product);
         }
 
         [HttpPost]
-        public ActionResult AddProduct(Product product)
+        public async Task<IActionResult> AddNewProduct(ProductModel model)
         {
-            if (products.Any())
+            try
             {
-                product.Id = products.Max(e => e.Id) + 1;
+                var newProductId = await _ProductRepo.AddProductAsync(model);
+                var Product = await _ProductRepo.GetProductAsync(newProductId);
+                return Product == null ? NotFound() : Ok(new { message = "Đã thêm thông tin sản phẩm thành công.", data = Product });
             }
-            else
+            catch
             {
-                product.Id = 1;
+                return BadRequest();
             }
-            products.Add(product);
-            return Ok(new { message = "Đã thêm thông tin sản phẩm thành công." });
         }
 
         [HttpPut("{id}")]
-        public ActionResult UpdateProduct(int id, Product updatedProduct)
+        public async Task<IActionResult> UpdateProduct(int id, [FromBody] ProductModel model)
         {
-            var product = products.FirstOrDefault(e => e.Id == id);
-            if (product == null)
+            if (id != model.Id)
             {
-                return NotFound(new { message = $"Không tìm thấy sản phẩm với ID: {id}" });
+                return NotFound();
             }
-            //product.Name = updatedProduct.Name;
-            //product.Position = updatedProduct.Position;
-            //product.Salary = updatedProduct.Salary;
-            return Ok(new { message = $"Thông tin sản phẩm với id: {id} đã được cập nhật." });
+            await _ProductRepo.UpdateProductAsync(id, model);
+            return Ok();
         }
 
+
         [HttpDelete("{id}")]
-        public ActionResult DeleteProduct(int id)
+        public async Task<IActionResult> DeleteProduct([FromRoute] int id)
         {
-            var product = products.FirstOrDefault(e => e.Id == id);
-            if (product == null) return NotFound();
-            products.Remove(product);
-            return Ok(new { message = $"Đã xóa sản phẩm với ID: {id} thành công" });
+            await _ProductRepo.DeleteProductAsync(id);
+            return Ok();
         }
 
         [HttpGet("search")]
-        public ActionResult<IEnumerable<Product>> SearchProducts(
-            [FromQuery] string? name,
-            [FromQuery] string? position,
-            [FromQuery] string? sortBySalary)
+        public async Task<ActionResult<IEnumerable<ProductModel>>> SearchProducts(
+        [FromQuery] string? name,
+        [FromQuery] string? description,
+        [FromQuery] string? sortByPrice,
+        [FromQuery] int pageNumber = 1,
+        [FromQuery] int pageSize = 10)
         {
+            var products = await _ProductRepo.GetAllProductsAsync();
             var result = products.AsEnumerable();
+
             if (!string.IsNullOrEmpty(name))
             {
                 result = result.Where(e => e.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
             }
-            if (!string.IsNullOrEmpty(position))
+            if (!string.IsNullOrEmpty(description))
             {
-                result = result.Where(e => e.Position.Contains(position, StringComparison.OrdinalIgnoreCase));
+                result = result.Where(e => e.Description.Contains(description, StringComparison.OrdinalIgnoreCase));
             }
-            if (!string.IsNullOrEmpty(sortBySalary))
+            if (!string.IsNullOrEmpty(sortByPrice))
             {
-                if (sortBySalary.Equals("asc", StringComparison.OrdinalIgnoreCase))
+                if (sortByPrice.Equals("asc", StringComparison.OrdinalIgnoreCase))
                 {
-                    result = result.OrderBy(e => e.Salary);
+                    result = result.OrderBy(e => e.Price);
                 }
-                else if (sortBySalary.Equals("desc", StringComparison.OrdinalIgnoreCase))
+                else if (sortByPrice.Equals("desc", StringComparison.OrdinalIgnoreCase))
                 {
-                    result = result.OrderByDescending(e => e.Salary);
+                    result = result.OrderByDescending(e => e.Price);
                 }
             }
+            result = result.Skip((pageNumber - 1) * pageSize).Take(pageSize);
             return Ok(result);
         }
-
     }
 }
